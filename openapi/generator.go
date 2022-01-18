@@ -106,6 +106,12 @@ func (g *Generator) SetServers(servers []*Server) {
 	g.api.Servers = servers
 }
 
+// SetSecurityRequirement sets the security options for the
+// current specification.
+func (g *Generator) SetSecurityRequirement(security *SecurityRequirement) {
+	g.api.Security = security
+}
+
 // API returns a copy of the internal OpenAPI object.
 func (g *Generator) API() *OpenAPI {
 	cpy := *g.api
@@ -264,6 +270,8 @@ func (g *Generator) AddOperation(path, method, tag string, in, out reflect.Type,
 		op.Deprecated = info.Deprecated
 		op.Responses = make(Responses)
 		op.XCodeSamples = info.XCodeSamples
+		op.Security = info.Security
+		op.XInternal = info.XInternal
 	}
 	if tag != "" {
 		op.Tags = append(op.Tags, tag)
