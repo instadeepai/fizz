@@ -526,6 +526,21 @@ func TestOperationContext(t *testing.T) {
 	}
 }
 
+func TestHandlerNamer(t *testing.T) {
+	fizz := New()
+	const id = "test-name"
+
+	fizz.gen.SetHandlerNamer(func(r *tonic.Route) string {
+		return id
+	})
+
+	fizz.GET("/", nil, tonic.Handler(func(c *gin.Context) error {
+		return nil
+	}, http.StatusOK))
+
+	assert.Equal(t, id, fizz.gen.API().Paths["/"].GET.ID)
+}
+
 func diffJSON(a, b []byte) (bool, error) {
 	var j1, j2 interface{}
 	if err := json.Unmarshal(a, &j1); err != nil {

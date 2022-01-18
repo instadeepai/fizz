@@ -275,6 +275,22 @@ f.GET("/openapi.json", nil, fizz.OpenAPI(infos, "json"))
 ```
 **NOTE**: The generator will never panic. However, it is strongly recommended to call `fizz.Errors` to retrieve and handle the errors that may have occured during the generation of the specification before starting your API.
 
+#### Handlers
+
+##### Custom Namer
+
+You can custom how your handlers are named when no ID is rovided.
+```go
+// This namer use the package name so you can have multiple handlers with the same name if they are in different packages.
+f.Generator().SetHandlerNamer(func(handler *tonic.Route) string {
+   id := handler.HandlerNameWithPackage()
+   id = strings.ReplaceAll(id, "*", "")
+   id = strings.ReplaceAll(id, "(", "")
+   id = strings.ReplaceAll(id, ")", "")
+   return id
+})
+```
+
 #### Components
 
 The output types of your handlers are registered as components within the generated specification. By default, the name used for each component is composed of the package and type name concatenated using _CamelCase_ style, and does not contain the full import path. As such, please ensure that you don't use the same type name in two eponym package in your application.
