@@ -2,6 +2,7 @@ package fizz
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -113,9 +114,35 @@ func TestHandler(t *testing.T) {
 	wg.Wait()
 }
 
+// customTime shows the date & time without timezone information
+type customTime time.Time
+
+func (c customTime) String() string {
+	return time.Time(c).Format("2006-01-02T15:04:05")
+}
+
+func (c customTime) MarshalJSON() ([]byte, error) {
+	// add quotes for JSON representation
+	ts := fmt.Sprintf("\"%s\"", c.String())
+	return []byte(ts), nil
+}
+
+func (c customTime) MarshalYAML() (interface{}, error) {
+	return c.String(), nil
+}
+
+func (c customTime) ParseExample(v string) (interface{}, error) {
+	t1, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return nil, err
+	}
+	return customTime(t1), nil
+}
+
 type T struct {
-	X string `json:"x" description:"This is X"`
-	Y int    `json:"y" description:"This is Y"`
+	X string     `json:"x" yaml:"x" description:"This is X"`
+	Y int        `json:"y" yaml:"y" description:"This is Y"`
+	Z customTime `json:"z" yaml:"z" example:"2022-02-07T18:00:00+09:00" description:"This is Z"`
 }
 type In struct {
 	A int    `path:"a" description:"This is A"`
@@ -128,12 +155,15 @@ type In struct {
 func TestTonicHandler(t *testing.T) {
 	fizz := New()
 
+	t1, err := time.Parse(time.RFC3339, "2022-02-07T18:00:00+09:00")
+	assert.Nil(t, err)
+
 	fizz.GET("/foo/:a", nil, tonic.Handler(func(c *gin.Context, params *In) (*T, error) {
 		assert.Equal(t, 0, params.A)
 		assert.Equal(t, "foobar", params.B)
 		assert.Equal(t, "foobaz", params.C)
 
-		return &T{X: "foo", Y: 1}, nil
+		return &T{X: "foo", Y: 1, Z: customTime(t1)}, nil
 	}, 200))
 
 	// Create a router group to test that tonic handlers works with router groups.
@@ -144,7 +174,7 @@ func TestTonicHandler(t *testing.T) {
 		assert.Equal(t, "group-foobar", params.B)
 		assert.Equal(t, "group-foobaz", params.C)
 
-		return &T{X: "group-foo", Y: 2}, nil
+		return &T{X: "group-foo", Y: 2, Z: customTime(t1)}, nil
 	}, 200))
 
 	srv := httptest.NewServer(fizz)
@@ -168,7 +198,7 @@ func TestTonicHandler(t *testing.T) {
 				"X-Test-C": []string{"foobaz"},
 			},
 			expectStatus: 200,
-			expectBody:   `{"x":"foo","y":1}`,
+			expectBody:   `{"x":"foo","y":1,"z":"2022-02-07T18:00:00"}`,
 		},
 		{
 			url:    "/test/bar/42?b=group-foobar",
@@ -177,7 +207,7 @@ func TestTonicHandler(t *testing.T) {
 				"X-Test-C": []string{"group-foobaz"},
 			},
 			expectStatus: 200,
-			expectBody:   `{"x":"group-foo","y":2}`,
+			expectBody:   `{"x":"group-foo","y":2,"z":"2022-02-07T18:00:00"}`,
 		},
 		{
 			url:    "/bar/42?b=group-foobar",
@@ -228,6 +258,10 @@ type testInputModel struct {
 	QueryParam string `query:"q"`
 }
 
+type testInputModel1 struct {
+	PathParam1 string `path:"a"`
+}
+
 type testInputModel2 struct {
 	C        string      `path:"c"`
 	Message  string      `json:"message" description:"A short message"`
@@ -255,7 +289,7 @@ func TestSpecHandler(t *testing.T) {
 			Header("X-Request-Id", "Unique request ID", String),
 			// Additional responses.
 			Response("429", "", String, []*openapi.ResponseHeader{
-				&openapi.ResponseHeader{
+				{
 					Name:        "X-Rate-Limit",
 					Description: "Rate limit",
 					Model:       Integer,
@@ -271,15 +305,20 @@ func TestSpecHandler(t *testing.T) {
 				Label:  "v4.4",
 				Source: "curl http://0.0.0.0:8080",
 			}),
+			// Explicit override for SecurityRequirement (allow-all)
+			WithoutSecurity(),
+			XInternal(),
 		},
-		tonic.Handler(func(c *gin.Context) error {
-			return nil
+		tonic.Handler(func(c *gin.Context, in *testInputModel1) (*T, error) {
+			return &T{}, nil
 		}, 200),
 	)
 
 	fizz.GET("/test/:a/:b", []OperationOption{
 		ID("GetTest2"),
 		InputModel(&testInputModel{}),
+		WithOptionalSecurity(),
+		Security(&openapi.SecurityRequirement{"oauth2": []string{"write:pets", "read:pets"}}),
 	}, tonic.Handler(func(c *gin.Context) error {
 		return nil
 	}, 200))
@@ -301,11 +340,11 @@ func TestSpecHandler(t *testing.T) {
 	)
 
 	servers := []*openapi.Server{
-		&openapi.Server{
+		{
 			URL:         "https://foo.bar/{basePath}",
 			Description: "Such Server, Very Wow",
 			Variables: map[string]*openapi.ServerVariable{
-				"basePath": &openapi.ServerVariable{
+				"basePath": {
 					Default:     "v2",
 					Description: "version of the API",
 					Enum:        []string{"v1", "v2", "beta"},
@@ -314,6 +353,36 @@ func TestSpecHandler(t *testing.T) {
 		},
 	}
 	fizz.Generator().SetServers(servers)
+
+	security := []*openapi.SecurityRequirement{
+		{"api_key": []string{}},
+		{"oauth2": []string{"write:pets", "read:pets"}},
+	}
+	fizz.Generator().SetSecurityRequirement(security)
+
+	fizz.Generator().API().Components.SecuritySchemes = map[string]*openapi.SecuritySchemeOrRef{
+		"api_key": {
+			SecurityScheme: &openapi.SecurityScheme{
+				Type: "apiKey",
+				Name: "api_key",
+				In:   "header",
+			},
+		},
+		"oauth2": {
+			SecurityScheme: &openapi.SecurityScheme{
+				Type: "oauth2",
+				Flows: &openapi.OAuthFlows{
+					Implicit: &openapi.OAuthFlow{
+						AuthorizationURL: "https://example.com/api/oauth/dialog",
+						Scopes: map[string]string{
+							"write:pets": "modify pets in your account",
+							"read:pets":  "read your pets",
+						},
+					},
+				},
+			},
+		},
+	}
 
 	fizz.GET("/openapi.json", nil, fizz.OpenAPI(infos, "")) // default is JSON
 	fizz.GET("/openapi.yaml", nil, fizz.OpenAPI(infos, "yaml"))

@@ -106,6 +106,18 @@ func (g *Generator) SetServers(servers []*Server) {
 	g.api.Servers = servers
 }
 
+// SetSecurityRequirement sets the security options for the
+// current specification.
+func (g *Generator) SetSecurityRequirement(security []*SecurityRequirement) {
+	g.api.Security = security
+}
+
+// SetSecuritySchemes sets the security schemes that can be used
+// inside the operations of the specification.
+func (g *Generator) SetSecuritySchemes(security map[string]*SecuritySchemeOrRef) {
+	g.api.Components.SecuritySchemes = security
+}
+
 // API returns a copy of the internal OpenAPI object.
 func (g *Generator) API() *OpenAPI {
 	cpy := *g.api
@@ -264,6 +276,8 @@ func (g *Generator) AddOperation(path, method, tag string, in, out reflect.Type,
 		op.Deprecated = info.Deprecated
 		op.Responses = make(Responses)
 		op.XCodeSamples = info.XCodeSamples
+		op.Security = info.Security
+		op.XInternal = info.XInternal
 	}
 	if tag != "" {
 		op.Tags = append(op.Tags, tag)
@@ -384,7 +398,9 @@ func (g *Generator) setOperationResponse(op *Operation, t reflect.Type, code, mt
 			if ci < 100 || ci > 599 {
 				return fmt.Errorf("response code out of range: %s", code)
 			}
-			desc = http.StatusText(ci)
+			if desc == "" {
+				desc = http.StatusText(ci)
+			}
 		}
 	}
 	r := &Response{
@@ -717,7 +733,7 @@ func (g *Generator) paramLocation(f reflect.StructField, in reflect.Type) (strin
 	// Count the number of keys that represents
 	// a parameter location from the tag of the
 	// struct field.
-	var parameterLocations = []string{
+	parameterLocations := []string{
 		g.config.PathLocationTag,
 		g.config.QueryLocationTag,
 		g.config.HeaderLocationTag,
@@ -1174,6 +1190,10 @@ func (g *Generator) updateSchemaValidation(schema *Schema, sf reflect.StructFiel
 		if t == "dive" || t == "keys" {
 			break
 		}
+		if t == "email" {
+			schema.Format = "email"
+			break
+		}
 		// Tags can be joined together with an OR operator.
 		parts := strings.Split(t, "|")
 
@@ -1242,6 +1262,12 @@ func fieldNameFromTag(sf reflect.StructField, tagName string) string {
 
 /// parseExampleValue is used to transform the string representation of the example value to the correct type.
 func parseExampleValue(t reflect.Type, value string) (interface{}, error) {
+	// If the type implements Exampler use the ParseExample method to create the example
+	i, ok := reflect.New(t).Interface().(Exampler)
+	if ok {
+		return i.ParseExample(value)
+	}
+
 	switch t.Kind() {
 	case reflect.Bool:
 		return strconv.ParseBool(value)
@@ -1281,6 +1307,8 @@ func parseExampleValue(t reflect.Type, value string) (interface{}, error) {
 		return strconv.ParseFloat(value, t.Bits())
 	case reflect.Ptr:
 		return parseExampleValue(t.Elem(), value)
+	case reflect.Struct:
+		return nil, fmt.Errorf("type %s does not implement Exampler", t.String())
 	default:
 		return nil, fmt.Errorf("unsuported type: %s", t.String())
 	}

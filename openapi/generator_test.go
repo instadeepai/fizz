@@ -2,9 +2,11 @@ package openapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"math"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -359,6 +361,23 @@ func TestNewSchemaFromStructFieldErrors(t *testing.T) {
 	assert.Equal(t, reflect.Bool, fe.Type.Kind())
 }
 
+func TestNewSchemaFromStructFieldFormat(t *testing.T) {
+	g := gen(t)
+
+	type T struct {
+		A string `validate:"email" default:"foobar"`
+	}
+	typ := reflect.TypeOf(T{})
+
+	// Field A is required and has a default value.
+	sor := g.newSchemaFromStructField(typ.Field(0), true, "A", typ)
+	assert.NotNil(t, sor)
+	assert.Len(t, g.Errors(), 1)
+	assert.Implements(t, (*error)(nil), g.Errors()[0])
+	assert.NotEmpty(t, g.Errors()[0].Error())
+	assert.Equal(t, sor.Schema.Format, "email")
+}
+
 func diffJSON(a, b []byte) (bool, error) {
 	var j, j2 interface{}
 	if err := json.Unmarshal(a, &j); err != nil {
@@ -569,6 +588,11 @@ func TestSetOperationResponseError(t *testing.T) {
 	}
 	err := g.setOperationResponse(op, reflect.TypeOf(new(string)), "200", "application/json", "", nil, nil, nil)
 	assert.Nil(t, err)
+	assert.Equal(t, "OK", op.Responses["200"].Description)
+
+	err = g.setOperationResponse(op, reflect.TypeOf(new(string)), "429", "application/json", "testDesc", nil, nil, nil)
+	assert.Nil(t, err)
+	assert.Equal(t, "testDesc", op.Responses["429"].Description)
 
 	// Add another response with same code.
 	err = g.setOperationResponse(op, reflect.TypeOf(new(int)), "200", "application/xml", "", nil, nil, nil)
@@ -725,7 +749,8 @@ func TestSetServers(t *testing.T) {
 					},
 					Default: "v2",
 				},
-			}},
+			},
+		},
 	}
 	g.SetServers(servers)
 
@@ -733,9 +758,29 @@ func TestSetServers(t *testing.T) {
 	assert.Equal(t, servers, g.API().Servers)
 }
 
+type customUnit float64
+
+func (c customUnit) ParseExample(v string) (interface{}, error) {
+	s, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return nil, err
+	}
+	return fmt.Sprintf("%.2f USD", s), nil
+}
+
+type customTime time.Time
+
+func (c customTime) ParseExample(v string) (interface{}, error) {
+	t1, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return nil, err
+	}
+	return customTime(t1), nil
+}
+
 // TestGenerator_parseExampleValue tests the parsing of example values.
 func TestGenerator_parseExampleValue(t *testing.T) {
-	var testCases = []struct {
+	testCases := []struct {
 		testName    string
 		typ         reflect.Type
 		inputValue  string
@@ -872,6 +917,30 @@ func TestGenerator_parseExampleValue(t *testing.T) {
 			reflect.PtrTo(reflect.TypeOf(true)),
 			"true",
 			true,
+		},
+		{
+			"mapping to customUnit",
+			reflect.TypeOf(customUnit(1)),
+			"15",
+			"15.00 USD",
+		},
+		{
+			"mapping pointer to customUnit",
+			reflect.PtrTo(reflect.TypeOf(customUnit(1))),
+			"20.00000",
+			"20.00 USD",
+		},
+		{
+			"mapping to customTime",
+			reflect.TypeOf(customTime{}),
+			"2022-02-07T18:00:00+09:00",
+			customTime(time.Date(2022, time.February, 7, 18, 0, 0, 0, time.FixedZone("", 9*3600))),
+		},
+		{
+			"mapping pointer to customTime",
+			reflect.PtrTo(reflect.TypeOf(customTime{})),
+			"2022-02-07T18:00:00+09:00",
+			customTime(time.Date(2022, time.February, 7, 18, 0, 0, 0, time.FixedZone("", 9*3600))),
 		},
 	}
 

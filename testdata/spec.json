@@ -5,27 +5,50 @@
         "description": "This is a test server.",
         "version": "1.0.0"
     },
-    "servers": [{
-        "url": "https://foo.bar/{basePath}",
-        "description": "Such Server, Very Wow",
-        "variables": {
-            "basePath": {
-                "enum": [
-                    "v1",
-                    "v2",
-                    "beta"
-                ],
-                "default": "v2",
-                "description": "version of the API"
+    "servers": [
+        {
+            "url": "https://foo.bar/{basePath}",
+            "description": "Such Server, Very Wow",
+            "variables": {
+                "basePath": {
+                    "enum": [
+                        "v1",
+                        "v2",
+                        "beta"
+                    ],
+                    "default": "v2",
+                    "description": "version of the API"
+                }
             }
         }
-    }],
+    ],    
+    "security": [
+        {
+            "api_key": []
+        },
+        {
+            "oauth2": [
+                "write:pets",
+                "read:pets"
+            ]
+        }
+    ],
     "paths": {
         "/test/{a}": {
             "get": {
                 "summary": "Test-A",
                 "description": "Test routes",
                 "operationId": "GetTest",
+                "parameters": [
+                    {
+                        "name": "a",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -34,6 +57,13 @@
                                 "description": "Unique request ID",
                                 "schema": {
                                     "type": "string"
+                                }
+                            }
+                        },
+                        "content":{
+                            "application/json":{
+                                "schema":{
+                                    "$ref":"#/components/schemas/FizzT"
                                 }
                             }
                         }
@@ -88,13 +118,15 @@
                     }
                 },
                 "deprecated": true,
-                "x-codeSamples":[
+                "x-codeSamples": [
                     {
-                        "lang":"Shell",
-                        "label":"v4.4",
-                        "source":"curl http://0.0.0.0:8080"
+                        "lang": "Shell",
+                        "label": "v4.4",
+                        "source": "curl http://0.0.0.0:8080"
                     }
-                ]
+                ],
+                "security": [],
+                "x-internal": true
             }
         },
         "/test/{a}/{b}": {
@@ -130,7 +162,16 @@
                     "200": {
                         "description": "OK"
                     }
-                }
+                },
+                "security": [
+                    {},
+                    {
+                        "oauth2": [
+                            "write:pets",
+                            "read:pets"
+                        ]
+                    }
+                ]
             }
         },
         "/test/{c}": {
@@ -165,6 +206,28 @@
     },
     "components": {
         "schemas": {
+            "FizzCustomTime":{
+                "type":"object",
+                "description":"This is Z",
+                "example": "2022-02-07T18:00:00"
+            },
+            "FizzT":{
+                "type":"object",
+                "properties":{
+                    "x":{
+                        "type":"string",
+                        "description":"This is X"
+                    },
+                    "y":{
+                        "type":"integer",
+                        "description":"This is Y",
+                        "format":"int32"
+                    },
+                    "z":{
+                        "$ref":"#/components/schemas/FizzCustomTime"
+                    }
+                }
+            },
             "PostTestInput": {
                 "type": "object",
                 "properties": {
@@ -175,6 +238,25 @@
                     "value": {
                         "description": "A nullable value of arbitrary type",
                         "nullable": true
+                    }
+                }
+            }
+        },
+        "securitySchemes": {
+            "api_key": {
+                "type": "apiKey",
+                "name": "api_key",
+                "in": "header"
+            },
+            "oauth2": {
+                "type": "oauth2",
+                "flows": {
+                    "implicit": {
+                        "authorizationUrl": "https://example.com/api/oauth/dialog",
+                        "scopes": {
+                            "write:pets": "modify pets in your account",
+                            "read:pets": "read your pets"
+                        }
                     }
                 }
             }
